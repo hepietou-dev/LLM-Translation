@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.venv/
+.venv-*/
+venv/
+
+# PyInstaller / NSIS build artifacts
+build/
+dist/
+dist_installer/
+*.spec.bak
+
+# Runtime output: translations may contain copyrighted book text
+out/
+work/
+
+# Baseline book is copyrighted; keep it local only
+tests/fixtures/baseline/source.pdf
+
+# Internal one-off patch scripts and archived book-specific fixes
+scripts/
+
+# Local tooling and agent state
+tools/
+.workbuddy/
+
+# Secrets and local overrides
+.env
+.env.*
+config/*.local.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/

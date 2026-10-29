@@ -1,0 +1,31 @@
+{
+  "api": {
+    "base_url": "https://api.deepseek.com/v1",
+    "model": "deepseek-chat",
+    "workers": 6
+  },
+  "preset": "print",
+  "chunk_words": 1600,
+  "polish": {
+    "enabled": true,
+    "batch_chars": 6000,
+    "max_blocks": 8
+  },
+  "ocr": {
+    "mode": "auto",
+    "spread": "auto"
+  },
+  "figures": {
+    "mode": "auto",
+    "force": [],
+    "rotate": {},
+    "captions": {}
+  },
+  "names": {
+    "enabled": true,
+    "limit": 150
+  },
+  "tables": {
+    "mode": "auto"
+  }
+}
