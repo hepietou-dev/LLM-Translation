@@ -140,22 +140,41 @@ def _latin_adjacent(text: str, start: int, end: int) -> bool:
     return False
 
 
-def _sub_names(text: str, pat, en: str, zn: str, gloss: str | None) -> str:
-    out, pos, used = [], 0, gloss is None
+NAME_PART = r"(?:[A-Z][a-z\u2019'\-]+|[A-Z]\.)"
+
+
+def _full_name(src: str, en: str) -> str:
+    """Prefer the full source name ('Mark Warren') over the bare surname."""
+    if not src:
+        return en
+    pat = re.compile(r"(?<![A-Za-z])((?:%s\s+){1,2}%s)(?![A-Za-z])" % (NAME_PART, re.escape(en)))
+    best = ""
+    for m in pat.finditer(src):
+        parts = m.group(1).split()
+        if any(p.strip(".") in STOP for p in parts[:-1]):
+            continue
+        if len(m.group(1)) > len(best):
+            best = m.group(1)
+    return best or en
+
+
+def _sub_names(text: str, pat, en: str, zn: str, label: str | None) -> str:
+    out, pos, used = [], 0, label is None
     for m in pat.finditer(text):
         out.append(text[pos:m.start()])
         if _latin_adjacent(text, m.start(), m.end()):
             out.append(m.group(0))
         else:
-            out.append(zn if used else zn + "（" + en + "）")
+            out.append(zn if used else zn + "（" + (label or en) + "）")
             used = True
         pos = m.end()
     out.append(text[pos:])
     return "".join(out)
 
 
-def localise(blocks: list[dict], pairs: dict[str, str]) -> dict[str, set]:
-    """Replace bare English names, keep exactly one '中文（English）' per name."""
+def localise(blocks: list[dict], pairs: dict[str, str], mode: str = "light") -> dict[str, set]:
+    """Replace bare English names, glossing per book (light) or per chapter (strong)."""
+    mode = mode if mode in ("off", "light", "strong") else "light"
     seen: set[str] = set()
     pages: dict[str, set] = collections.defaultdict(set)
     order = sorted(pairs, key=len, reverse=True)
@@ -164,6 +183,8 @@ def localise(blocks: list[dict], pairs: dict[str, str]) -> dict[str, set]:
                 for en in order}
 
     for b in blocks:
+        if mode == "strong" and b.get("type") == "h1":
+            seen.clear()
         src, zh = b.get("text", ""), b.get("zh", "")
         for en in order:
             if src_pat[en].search(src):
@@ -181,7 +202,8 @@ def localise(blocks: list[dict], pairs: dict[str, str]) -> dict[str, set]:
             pat = name_pat[en]
             if not pat.search(zh):
                 continue
-            new = _sub_names(zh, pat, en, zn, None if en in seen else en)
+            label = None if (en in seen or mode == "off") else _full_name(src, en)
+            new = _sub_names(zh, pat, en, zn, label)
             if new != zh:
                 seen.add(en)
                 zh = new
@@ -190,22 +212,30 @@ def localise(blocks: list[dict], pairs: dict[str, str]) -> dict[str, set]:
     # drop later duplicates of the parenthetical form
     kept: set[str] = set()
     for b in blocks:
+        if mode == "strong" and b.get("type") == "h1":
+            kept.clear()
         zh = b.get("zh", "")
         if not zh:
             continue
         for en in order:
             zn = pairs[en]
-            forms = [zn + "（" + en + "）", zn + "(" + en + ")"]
-            bare = ["（" + en + "）", "(" + en + ")"]
-            if kept.__contains__(en):
-                for f in forms:
-                    zh = zh.replace(f, zn)
-            elif any(f in zh for f in forms):
+            if not zn or not CJK.search(zn):
+                continue
+            form = re.compile(re.escape(zn) + r"\s*[（(]([^（）()]*?)[）)]")
+
+            def repl(m, en=en, zn=zn):
+                inside = m.group(1)
+                if not re.search(r"(?<![A-Za-z])%s(?![A-Za-z])" % re.escape(en), inside):
+                    return m.group(0)          # a different gloss, leave it alone
+                if mode == "off" or en in kept:
+                    return zn
                 kept.add(en)
-                zh = zh.replace(forms[0], "\u0001").replace(forms[1], "\u0001")
-            for f in bare:
-                zh = zh.replace(f, "")
-            zh = zh.replace("\u0001", forms[0])
+                return m.group(0)
+
+            zh = form.sub(repl, zh)
+            if mode == "off":
+                for f in ("（" + en + "）", "(" + en + ")"):
+                    zh = zh.replace(f, "")
         b["zh"] = zh
     return pages
 

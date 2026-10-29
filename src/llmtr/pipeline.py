@@ -14,6 +14,7 @@ from . import clean as clean_mod
 from . import docxin as docx_mod
 from . import epub as epub_mod
 from . import figures as fig_mod
+from . import gloss as gloss_mod
 from . import images as img_mod
 from . import ingest as ing
 from . import names as nm
@@ -40,6 +41,7 @@ DEFAULTS = {
             "max_bad_ratio": 0.35, "judge": True, "judge_max": 40},
     "proof": {"mode": "auto", "limit": 40},
     "names": {"enabled": True, "limit": 150},
+    "source_gloss": {"mode": "strong", "max_per_block": 8},
     "figures": dict(fig_mod.DEFAULTS),
     "paths": {"glossary": "config/glossary.tsv", "names": "config/names.tsv"},
 }
@@ -71,6 +73,16 @@ def load_tsv(path: Path) -> dict[str, str]:
             if len(p) >= 2 and p[0] and not p[0].startswith("#"):
                 out[p[0]] = p[1]
     return out
+
+
+def _apply_gloss(blocks: list[dict], glossary: dict[str, str], cfg: dict, log) -> dict:
+    stats = gloss_mod.apply(blocks, glossary, cfg)
+    if stats["mode"] == "off":
+        log("英文原词：关闭（书名与专名只保留中文）")
+    elif stats["terms"] or stats["titles"]:
+        log("英文原词：%s · 术语括注 %d 处 · 去重书名 %d 处"
+            % (gloss_mod.LABELS[stats["mode"]], stats["terms"], stats["titles"]))
+    return stats
 
 
 
@@ -556,6 +568,7 @@ def _run_impl(pdf: Path, outdir: Path, cfg: dict, *, preset: str = "print", dry_
     per_book_glossary = outdir / "glossary.tsv"
     if per_book_glossary.exists():
         glossary.update(load_tsv(per_book_glossary))
+    gloss_mode = gloss_mod.mode_of(cfg)
     api = client if (client.key and not dry_run) else None
 
     stage("结构")
@@ -628,18 +641,20 @@ def _run_impl(pdf: Path, outdir: Path, cfg: dict, *, preset: str = "print", dry_
     tr.translate_blocks(client, todo, glossary, workers=cfg["api"]["workers"],
                         chunk_size=cfg["chunk_words"], dry_run=dry_run or not client.key,
                         progress=translate_progress,
-                        stop=stop)
+                        stop=stop, source_gloss=gloss_mode)
 
     stage("修复")
     if client.key and not dry_run:
         fixed = tr.fix_headings(client, blocks, stop=stop,
                                 workers=cfg["api"].get("workers", 4),
-                                progress=(lambda d, n: stage("修复", d, n)) if progress else None)
+                                progress=(lambda d, n: stage("修复", d, n)) if progress else None,
+                                system=gloss_mod.system_prompt(gloss_mode))
         if fixed:
             log("headings repaired: %d" % fixed)
         fixed = tr.repair_blocks(client, blocks, stop=stop,
                                  workers=cfg["api"].get("workers", 4),
-                                 progress=(lambda d, n: stage("修复", d, n)) if progress else None)
+                                 progress=(lambda d, n: stage("修复", d, n)) if progress else None,
+                                 system=gloss_mod.system_prompt(gloss_mode))
         if fixed:
             log("blocks repaired: %d" % fixed)
         fixed = tr.fix_english_terms(client, blocks, stop=stop,
@@ -736,7 +751,7 @@ def _run_impl(pdf: Path, outdir: Path, cfg: dict, *, preset: str = "print", dry_
         pairs = {k: v["zh"] for k, v in recs.items()}
         given = {k for k, v in recs.items() if v.get("kind") == nm.GIVEN}
         if pairs:
-            pages = nm.localise(blocks, pairs)
+            pages = nm.localise(blocks, pairs, mode=gloss_mode)
             rows = nm.build_index(pairs, pages, given)
             if rows:
                 pos = len(blocks)          # the name index always goes last
@@ -754,6 +769,7 @@ def _run_impl(pdf: Path, outdir: Path, cfg: dict, *, preset: str = "print", dry_
     if pages_filter:
         lo, hi = (int(x) for x in pages_filter.split("-"))
         blocks = [b for b in blocks if str(b["page"]).isdigit() and lo <= int(b["page"]) <= hi]
+    _apply_gloss(blocks, glossary, cfg, log)
 
     stage("排版")
     check()
@@ -865,6 +881,7 @@ def _run_epub(path: Path, outdir: Path, cfg: dict, *, preset: str = "print",
     per_book_glossary = outdir / "glossary.tsv"
     if per_book_glossary.exists():
         glossary.update(load_tsv(per_book_glossary))
+    gloss_mode = gloss_mod.mode_of(cfg)
     api = client if (client.key and not dry_run) else None
 
     stage("结构")
@@ -906,18 +923,20 @@ def _run_epub(path: Path, outdir: Path, cfg: dict, *, preset: str = "print",
 
     tr.translate_blocks(client, todo, glossary, workers=cfg["api"]["workers"],
                         chunk_size=cfg["chunk_words"], dry_run=dry_run or not client.key,
-                        progress=translate_progress, stop=stop)
+                        progress=translate_progress, stop=stop, source_gloss=gloss_mode)
 
     stage("修复")
     if client.key and not dry_run:
         fixed = tr.fix_headings(client, blocks, stop=stop,
                                 workers=cfg["api"].get("workers", 4),
-                                progress=(lambda d, n: stage("修复", d, n)) if progress else None)
+                                progress=(lambda d, n: stage("修复", d, n)) if progress else None,
+                                system=gloss_mod.system_prompt(gloss_mode))
         if fixed:
             log("headings repaired: %d" % fixed)
         fixed = tr.repair_blocks(client, blocks, stop=stop,
                                  workers=cfg["api"].get("workers", 4),
-                                 progress=(lambda d, n: stage("修复", d, n)) if progress else None)
+                                 progress=(lambda d, n: stage("修复", d, n)) if progress else None,
+                                 system=gloss_mod.system_prompt(gloss_mode))
         if fixed:
             log("blocks repaired: %d" % fixed)
         fixed = tr.fix_english_terms(client, blocks, stop=stop,
@@ -984,7 +1003,7 @@ def _run_epub(path: Path, outdir: Path, cfg: dict, *, preset: str = "print",
         nm.save_tsv(per_book, recs)
         pairs = {k: v["zh"] for k, v in recs.items()}
         if pairs:
-            pages = nm.localise(blocks, pairs)
+            pages = nm.localise(blocks, pairs, mode=gloss_mode)
             log("names: %d entries localised" % len(pages))
     forced_h1 = {id(b) for b in blocks if b["type"] == "h1"}
     # the source book already carries its own INDEX; finalize must not append one
@@ -992,6 +1011,7 @@ def _run_epub(path: Path, outdir: Path, cfg: dict, *, preset: str = "print",
     for b in blocks:
         if id(b) in forced_h1 and b["type"] == "h2":
             b["type"] = "h1"          # front matter on roman pages is still top level
+    _apply_gloss(blocks, glossary, cfg, log)
 
     stage("排版")
     check()
@@ -1111,7 +1131,12 @@ def rebuild(book_path: Path, docx: Path, cfg: dict, *, preset: str = "print",
         blocks = keep
 
     pairs = nm.load_tsv(Path(cfg["paths"]["names"])) if cfg["names"].get("enabled", True) else {}
+    glossary = load_tsv(Path(cfg["paths"]["glossary"]))
+    per_book_glossary = Path(book_path).parent / "glossary.tsv"
+    if per_book_glossary.exists():
+        glossary.update(load_tsv(per_book_glossary))
     blocks = clean_mod.finalize(clean_mod.run(blocks), pairs)
+    _apply_gloss(blocks, glossary, cfg, log)
     book["blocks"] = blocks
     apply_layout_flags(book.setdefault("meta", {}), cfg)
     Path(book_path).write_text(json.dumps(book, ensure_ascii=False), encoding="utf-8")

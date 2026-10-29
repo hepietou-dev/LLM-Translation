@@ -25,6 +25,10 @@
     "enabled": true,
     "limit": 150
   },
+  "source_gloss": {
+    "mode": "strong",
+    "max_per_block": 8
+  },
   "tables": {
     "mode": "auto"
   }

@@ -610,6 +610,35 @@ class PublicationStructure(unittest.TestCase):
         names.localise(blocks, {"Warren": "沃伦"})
         self.assertEqual(blocks[0]["zh"], "沃伦（Warren） 写道。")
 
+    def test_localise_can_use_the_full_source_name(self):
+        from llmtr import names
+        blocks = [{"type": "p", "page": "12", "text": "Mark Warren wrote.",
+                   "zh": "Warren 写道。"}]
+        names.localise(blocks, {"Warren": "沃伦"})
+        self.assertEqual(blocks[0]["zh"], "沃伦（Mark Warren） 写道。")
+
+    def test_localise_strong_mode_glosses_each_chapter(self):
+        from llmtr import names
+        blocks = [
+            {"type": "h1", "page": "1", "text": "One", "zh": "第一章"},
+            {"type": "p", "page": "2", "text": "Warren wrote.", "zh": "Warren 写道。"},
+            {"type": "h1", "page": "9", "text": "Two", "zh": "第二章"},
+            {"type": "p", "page": "10", "text": "Warren wrote again.", "zh": "Warren 又写道。"},
+        ]
+        names.localise(blocks, {"Warren": "沃伦"}, mode="strong")
+        self.assertIn("（Warren）", blocks[1]["zh"])
+        self.assertIn("（Warren）", blocks[3]["zh"])
+
+        blocks[1]["zh"], blocks[3]["zh"] = "Warren 写道。", "Warren 又写道。"
+        names.localise(blocks, {"Warren": "沃伦"}, mode="light")
+        self.assertIn("（Warren）", blocks[1]["zh"])
+        self.assertEqual(blocks[3]["zh"], "沃伦 又写道。")
+
+        blocks[1]["zh"], blocks[3]["zh"] = "Warren 写道。", "Warren 又写道。"
+        names.localise(blocks, {"Warren": "沃伦"}, mode="off")
+        self.assertEqual(blocks[1]["zh"], "沃伦 写道。")
+        self.assertEqual(blocks[3]["zh"], "沃伦 又写道。")
+
     def test_toc_promotes_front_matter_sections(self):
         from llmtr import build
         blocks = [
@@ -620,6 +649,89 @@ class PublicationStructure(unittest.TestCase):
         got = build.toc_heads(blocks, {})
         self.assertEqual([b["type"] for b in got], ["h1", "h1", "h1"])
         self.assertEqual(got[1]["zh"], "撰稿人")
+
+
+class SourceGlossModes(unittest.TestCase):
+    def test_prompt_has_three_distinct_levels(self):
+        from llmtr import gloss
+        off, light, strong = (gloss.system_prompt(m) for m in gloss.MODES)
+        self.assertIn("不加英文原文括号", off)
+        self.assertIn("首次出现加原文括号", light)
+        self.assertIn("每章第一次出现都括注原文", strong)
+        self.assertNotEqual(strong, light)
+        self.assertNotEqual(light, off)
+
+    def test_default_is_strong(self):
+        from llmtr import gloss
+        self.assertEqual(gloss.DEFAULT_MODE, "strong")
+        self.assertEqual(gloss.mode_of({}), "strong")
+        self.assertEqual(gloss.mode_of({"source_gloss": {"mode": "light"}}), "light")
+        self.assertEqual(gloss.mode_of({"source_gloss": "bogus"}), "strong")
+
+    def test_glossary_term_is_glossed_once(self):
+        from llmtr import gloss
+        cfg = {"source_gloss": {"mode": "strong"}}
+        blocks = [
+            {"type": "p", "text": "The empire rose.", "zh": "这个帝国兴起了。"},
+            {"type": "p", "text": "The empire fell.", "zh": "这个帝国衰落了。"},
+        ]
+        stats = gloss.apply(blocks, {"empire": "帝国"}, cfg)
+        self.assertEqual(stats["terms"], 1)
+        self.assertEqual(blocks[0]["zh"], "这个帝国（empire）兴起了。")
+        self.assertEqual(blocks[1]["zh"], "这个帝国衰落了。")
+
+    def test_term_only_inside_a_gloss_waits_for_a_plain_occurrence(self):
+        from llmtr import gloss
+        cfg = {"source_gloss": {"mode": "light"}}
+        blocks = [
+            {"type": "p", "text": "The empire rose.", "zh": "（帝国）一词很含糊。"},
+            {"type": "p", "text": "The empire fell.", "zh": "帝国衰落了。"},
+        ]
+        gloss.apply(blocks, {"empire": "帝国"}, cfg)
+        self.assertEqual(blocks[0]["zh"], "（帝国）一词很含糊。")
+        self.assertEqual(blocks[1]["zh"], "帝国（empire）衰落了。")
+
+    def test_off_mode_leaves_terms_and_titles_alone(self):
+        from llmtr import gloss
+        cfg = {"source_gloss": {"mode": "off"}}
+        blocks = [{"type": "p", "text": "The empire rose.",
+                   "zh": "《帝国》（The Empire）讲这个帝国。"}]
+        stats = gloss.apply(blocks, {"empire": "帝国"}, cfg)
+        self.assertEqual(stats["terms"], 0)
+        self.assertEqual(blocks[0]["zh"], "《帝国》讲这个帝国。")
+
+    def test_title_gloss_is_kept_once_per_scope(self):
+        from llmtr import gloss
+        cfg = {"source_gloss": {"mode": "light"}}
+        blocks = [
+            {"type": "p", "text": "A.", "zh": "《社会契约论》（The Social Contract）是名著。"},
+            {"type": "p", "text": "B.", "zh": "重读《社会契约论》（The Social Contract）很有收获。"},
+        ]
+        gloss.apply(blocks, {}, cfg)
+        self.assertIn("（The Social Contract）", blocks[0]["zh"])
+        self.assertEqual(blocks[1]["zh"], "重读《社会契约论》很有收获。")
+
+        blocks[0]["zh"] = "《社会契约论》（The Social Contract）是名著。"
+        blocks[1]["zh"] = "重读《社会契约论》（The Social Contract）很有收获。"
+        cfg = {"source_gloss": {"mode": "strong"}}
+        blocks.insert(1, {"type": "h1", "text": "Two", "zh": "第二章"})
+        gloss.apply(blocks, {}, cfg)
+        self.assertIn("（The Social Contract）", blocks[2]["zh"])
+
+    def test_translate_blocks_passes_the_mode_prompt(self):
+        from llmtr import gloss, translate
+        seen = []
+
+        class Fake:
+            key = "k"
+
+            def chat(self, system, prompt, stop=None):
+                seen.append(system)
+                return "[b0000] 译文"
+
+        blocks = [{"id": "b0000", "type": "p", "text": "Hello world."}]
+        translate.translate_blocks(Fake(), blocks, {}, workers=1, source_gloss="off")
+        self.assertEqual(seen[0], gloss.system_prompt("off"))
 
 
 class TocHeadingLevels(unittest.TestCase):
@@ -811,11 +923,13 @@ class ConfigDefaults(unittest.TestCase):
         self.assertEqual(cfg["figures"]["rotate"], {})
         self.assertEqual(cfg["figures"]["captions"], {})
         self.assertEqual(cfg["ocr"]["spread"], "auto")
+        self.assertEqual(cfg["source_gloss"]["mode"], "strong")
 
     def test_defaults_disable_no_ocr(self):
         cfg = pipeline.load_config(None)
         self.assertEqual(cfg["ocr"]["mode"], "auto")
         self.assertEqual(cfg["figures"].get("force", []), [])
+        self.assertEqual(cfg["source_gloss"]["mode"], "strong")
 
 
 class CooperativeStop(unittest.TestCase):

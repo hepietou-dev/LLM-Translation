@@ -12,6 +12,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
+from llmtr import gloss as gloss_mod
 from llmtr.stages import STAGES
 
 # 时间占比权重：翻译是主项，其余阶段按经验值加权，用于更稳的剩余时间估计
@@ -365,6 +366,20 @@ class App:
         self.dry_chip.grid(row=1, column=3, sticky="w", padx=(0, 16), pady=(0, 2))
         self.chips["dry"] = self.dry_chip
 
+        gloss_row = ttk.Frame(opts)
+        gloss_row.grid(row=2, column=0, columnspan=4, sticky="w", pady=(6, 0))
+        ttk.Label(gloss_row, text="英文原词").pack(side="left")
+        saved_mode = saved.get("gloss", gloss_mod.DEFAULT_MODE)
+        self.gloss_var = tk.StringVar(
+            value=gloss_mod.LABELS.get(saved_mode, gloss_mod.LABELS[gloss_mod.DEFAULT_MODE]))
+        self.gloss_box = ttk.Combobox(gloss_row, textvariable=self.gloss_var,
+                                      values=[gloss_mod.LABELS[m] for m in gloss_mod.MODES],
+                                      state="readonly", width=12,
+                                      style="Field.TCombobox", cursor="hand2")
+        self.gloss_box.pack(side="left", padx=(6, 8))
+        ttk.Label(gloss_row, text="书名、人名、专名在括号里保留英文原文的程度",
+                  style="Muted.TLabel").pack(side="left")
+
         ttk.Label(card, text="API 服务商").grid(row=4, column=0, sticky="w", pady=(8, 0))
         prov = saved.get("provider", "DeepSeek")
         self.provider_var = tk.StringVar(value=prov if prov in PROVIDERS else "DeepSeek")
@@ -413,6 +428,7 @@ class App:
         self._input_widgets = [(self.pdf_entry, "normal"), (self.pdf_btn, "normal"),
                                (self.out_entry, "normal"), (self.out_btn, "normal"),
                                (self.preset_box, "readonly"), (self.provider_box, "readonly"),
+                               (self.gloss_box, "readonly"),
                                (self.base_entry, "normal"), (self.model_entry, "normal"),
                                (self.key_entry, "normal")]
         self._running = False
@@ -686,8 +702,11 @@ class App:
         self.log_line("开始：%s" % pdf.name)
         prov = self.provider_var.get()
         preset_info = PROVIDERS.get(prov) or {}
+        gloss_mode = {v: k for k, v in gloss_mod.LABELS.items()}.get(
+            self.gloss_var.get(), gloss_mod.DEFAULT_MODE)
         cfg_over = {"tables": {"mode": "auto"},
                     "page_tags": bool(self.page_tags_var.get()),
+                    "source_gloss": {"mode": gloss_mode},
                     "translate": {"notes": self.notes_var.get(),
                                   "bibliography": self.bib_var.get()},
                     "polish": {"enabled": bool(self.polish_var.get())},
@@ -705,11 +724,14 @@ class App:
                        "bib": self.bib_var.get(), "ocr": self.ocr_var.get(),
                        "judge": bool(self.judge_var.get()),
                        "polish": bool(self.polish_var.get()),
-                       "preview": keep_pdf, "page_tags": bool(self.page_tags_var.get())})
+                       "preview": keep_pdf, "page_tags": bool(self.page_tags_var.get()),
+                       "gloss": gloss_mode})
         if dry:
-            self.log_line("服务商 %s · 模型 %s" % (prov, model or "-"))
+            self.log_line("服务商 %s · 模型 %s · 英文原词 %s"
+                          % (prov, model or "-", gloss_mod.LABELS[gloss_mode]))
         else:
-            self.log_line("服务商 %s · 模型 %s · 地址 %s" % (prov, model, base))
+            self.log_line("服务商 %s · 模型 %s · 地址 %s · 英文原词 %s"
+                          % (prov, model, base, gloss_mod.LABELS[gloss_mode]))
         cache_dir = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "LLMTranslation" / "cache"
         self.worker = threading.Thread(
             target=self.run_job,

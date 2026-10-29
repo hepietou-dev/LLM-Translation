@@ -7,7 +7,7 @@ Unicode true
 !include "FileFunc.nsh"
 
 !define APP_NAME "LLM Translation"
-!define APP_VERSION "1.0.0"
+!define APP_VERSION "1.1.0"
 !define APP_PUBLISHER "LLM Translation"
 !define APP_EXE "LLMTranslation.exe"
 !define APP_REG "Software\LLMTranslation"
@@ -26,7 +26,7 @@ SetDatablockOptimize on
 CRCCheck on
 BrandingText "${APP_NAME} ${APP_VERSION}"
 
-VIProductVersion "1.0.0.0"
+VIProductVersion "1.1.0.0"
 VIAddVersionKey "ProductName" "${APP_NAME}"
 VIAddVersionKey "CompanyName" "${APP_PUBLISHER}"
 VIAddVersionKey "FileDescription" "LLM Translation 安装程序"

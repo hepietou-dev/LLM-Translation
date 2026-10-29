@@ -8,7 +8,7 @@ llmtr run book.epub --out out\book
 llmtr run book.docx --out out\book
 ```
 
-Windows 用户可直接从 [Releases](../../releases) 下载 `LLMTranslation_Setup_1.0.0.exe`，
+Windows 用户可直接从 [Releases](../../releases) 下载 `LLMTranslation_Setup_1.1.0.exe`，
 双击安装即可使用，不需要安装 Python 或其他运行环境。
 
 ![界面](docs/screenshot.png)
@@ -53,7 +53,7 @@ LLMTranslation.exe --pdf book.pdf --out out\book --preset print --start
 
 ## Windows 安装包
 
-`LLMTranslation_Setup_1.0.0.exe` 是免环境的一键安装包（NSIS，按当前用户安装，不需要管理员权限）：
+`LLMTranslation_Setup_1.1.0.exe` 是免环境的一键安装包（NSIS，按当前用户安装，不需要管理员权限）：
 
 - 安装到 `%LOCALAPPDATA%\Programs\LLM Translation`，约 100 MB，包含 Python、PyMuPDF、python-docx 和 Pillow；
 - 自动创建桌面、开始菜单快捷方式，并写入标准卸载注册表项（设置 → 应用 → 已安装的应用可看到）；
@@ -80,10 +80,11 @@ C:\nsis\Bin\makensis.exe C:\build\installer\LLMTranslation.nsi
 | DOCX | `docxin` | 无头转 PDF（内置 kit / LibreOffice / Word·WPS COM）后走同一套 PDF 流程；同时读 Word 的 `Heading 1-3` 大纲盖回块结构，元数据取文档属性，文首标题/署名并入封面 |
 | 跨版拆分 | `ocr.layout_pages` | 文字层不可用时整页视觉识别；扫描件一页拍两页（宽高比 ≥1.2）时按左右半页分别识别，各自保留印刷页码 |
 | 目录驱动 | `toc` | 先认目录页（`Contents`/`目录`/点线引导/右对齐页码，含跨页与双栏）→ 章节标题与页码 → 注入 `h1`（按页）/`h2`（按标题前 5 词定位），剥离段落里粘连的标题文字；目录页解析不可靠时改用 PDF 书签；都没有则按版式（字号、缩进、页首短行）自识别标题层级 |
-| 翻译 | `translate` | 1600 词 / 7000 字符一片、`[b0001]` 编号协议、输出上限 8192 token；截断尾行自动重打、整批失败逐块补译、磁盘缓存可续跑；术语表按片裁剪下发 |
+| 翻译 | `translate` | 1600 词 / 7000 字符一片、`[b0001]` 编号协议、输出上限 8192 token；截断尾行自动重打、整批失败逐块补译、磁盘缓存可续跑；术语表按片裁剪下发；按“英文原词”档位下发不同的书名/专名括注规则 |
 | 润色 | `translate.polish_blocks` | 二次中文编辑：拆分“的”字链、去空动词与生硬“被”字句；数字、注号、外文与篇幅受硬性校验，越界改写丢弃 |
 | 修复 | `translate.repair_blocks` 等 | 标题回炉；篇幅异常/疑似截断的段落整段重译；夹带在中文里的英文单词就地汉化 |
-| 人名 | `names` | 专名候选 → 一次批量译名 → 正文替换 + 唯一首现 `中文（English)` → 书末人名索引（按英文排序、变体合并） |
+| 人名 | `names` | 专名候选 → 一次批量译名 → 正文替换 + `中文（English)` 首现括注（适度按全书、较多按每章、关闭不加）→ 书末人名索引（按英文排序、变体合并） |
+| 英文原词 | `gloss` | 按档位统一括注：术语表命中的专名、机构、关键概念补 `中文（English）`；重复的书名原文括注只保留每章第一处；关闭档全部去掉 |
 | 图版 | `figures` | 版式统计挑出候选页；**只转换确认页**（`force`），候选页只报告，避免误伤正文；渲染→裁白边→转正→嵌图→图注带原书页码 |
 | 表格 | `tables` | 定位表格区域 → 按原书版面渲染为图片嵌入 DOCX（不再重建表格结构），跨页续表附原书页码 |
 | 清洗 | `clean` | 去前置件、碎片、OCR 残符；标题合法性校验（无中文即伪标题）、重复标题剥离、跨页标题碎片合并 |
@@ -105,6 +106,7 @@ C:\nsis\Bin\makensis.exe C:\build\installer\LLMTranslation.nsi
   "translate": {"notes": true, "bibliography": false},
   "polish": {"enabled": true, "batch_chars": 6000, "max_blocks": 8},
   "names": {"enabled": true, "limit": 150},
+  "source_gloss": {"mode": "strong", "max_per_block": 8},
   "figures": {"mode": "auto", "force": [], "rotate": {}, "captions": {}}
 }
 ```
@@ -116,6 +118,24 @@ C:\nsis\Bin\makensis.exe C:\build\installer\LLMTranslation.nsi
 判读以 `[OK]` / `[FIX]+结构化重排` 回复，只有 `[FIX]` 的页会覆盖原 OCR 文本，其余原样保留。
 
 `figures.mode`：`auto` 只转 `force` 里的页；`auto-all` 连候选页一起转；`off` 关闭。
+
+## 英文原词对照
+
+译稿里保留多少英文，由 `source_gloss.mode`（GUI 的“英文原词”下拉框）控制：
+
+| 档位 | 书名 | 人名 | 机构、地名、条约、关键术语 |
+| --- | --- | --- | --- |
+| `strong`（默认，较多） | 每章首次出现都写《中文书名》（English Title），之后只写中文 | 每章首次出现括注原文，优先用全名 | 首次出现括注原文 |
+| `light`（适度） | 全书首次出现括注，之后只写中文 | 全书首次出现括注 | 只在没有把握时保留英文 |
+| `off`（关闭） | 只写中文书名，并清掉已有括注 | 只写中文名，不加原文 | 一律译成中文 |
+
+`strong` 还会对**术语表命中项**做确定性括注：只要该词在译文里出现且尚未括注，就补一个
+`中文（English）`；同一作用域内每个词只补一次，`max_per_block` 限制单段最多补几处（默认 8）。
+人名和术语的“首次”在 `strong` 下按章重置，`light` 下按全书只算一次。
+
+书名括注由模型按上述规则生成；若某本书的书名反复出现且写法不统一，可在
+`config/glossary.tsv`（或输出目录的 `glossary.tsv`）里加一行 `English Title<TAB>中文书名`
+固定译法，翻译和括注都会以它为准。
 
 接口按 OpenAI 兼容协议调用，`base_url` / `model` 可指向任意厂商（DeepSeek、OpenAI、通义千问、智谱、
 自建 vLLM 等）；GUI 内置上述预设，也可选"自定义"。`price_in` / `price_out`（元/百万 token）只影响
@@ -156,7 +176,7 @@ AI 审校（自动修正与待复核），末尾给出能否交付人工通读�
 ## 目录
 
 ```
-src/llmtr/   ingest / epub / docxin / toc / translate / names / figures / tables / clean / build / pipeline / cli
+src/llmtr/   ingest / epub / docxin / toc / translate / names / gloss / figures / tables / clean / build / pipeline / cli
 config/      config.json figures.json glossary.tsv names.tsv
 tests/       test_units.py（离线单测）；test_baseline.py 需自备 fixtures/baseline/source.pdf
 installer/   NSIS 安装脚本与面向非技术用户的使用说明

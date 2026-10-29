@@ -12,31 +12,11 @@ import urllib.request
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
-PROMPT_VERSION = "v4"
+from . import gloss as gloss_mod
 
-SYSTEM = (
-    "你是资深学术译者，为出版社翻译英文学术专著。译文要准确、克制、有书卷气，"
-    "读起来像中文作者写的，而不是英文句子的逐字替换。\n"
-    "格式：\n"
-    "1) 每行以编号开头（如 [b0007]），译文保留同一编号，一行对应一段，不得合并、拆分、增删；\n"
-    "2) 只输出“编号 + 空格 + 译文”，不要解释、不要 Markdown、不要空行；\n"
-    "3) 注释行只译说明性文字；所引文献的作者、书名/篇名、期刊、出版社、年份、页码一律照抄原文，不译；"
-    "注释叙述中出现的学者或历史人物（并非所引文献作者）仍按第5条译名并括注原文；ibid.=同上，op. cit.=前引书；\n"
-    "4) 忠实原意与限定强度（may/suggests/to some extent 如实译），不概括、不改写；"
-    "必须完整覆盖原文每一句，不得漏译任何分句；\n"
-    "5) 术语按词表；人名一律中文，首次出现加原文括号，如 苏加诺（Sukarno）；\n"
-    "6) 原文书名用《》，保留 *斜体* 标记；数字、年份、页码照原文；\n"
-    "7) ⟦数字⟧ 是原文的注释号，必须原样保留在对应位置，不得删除、改写或翻译；"
-    "扫描件上标残符（1° !™ ”° 等）直接删除。\n"
-    "汉语表达：\n"
-    "8) 按中文习惯重组语序：英文长句可以拆成几个短句，几个短句也可以合并；"
-    "不要把 when/if/which/that 结构硬套成“当……的时候/如果……/其/该”；\n"
-    "9) 少用“被”字句，少用“进行/作出/给予/加以”这类空动词，少用“一个/一种”凑量词，避免“的”字连缀；\n"
-    "10) 学术概念用学界通行译法；没有把握的术语保留英文并首次括注；不口语化，"
-    "不添加原文没有的评论、连接词或语气；除专名、书名、首次出现的术语及拉丁/希腊文引文外，"
-    "正文不得夹带英文单词——dramatic、successive、counterparts 这类普通词必须译出；\n"
-    "11) 段内指代要清楚：it/they/this 等按上下文还原为具体对象，不用一连串“它/这”。"
-)
+PROMPT_VERSION = "v5"
+
+SYSTEM = gloss_mod.system_prompt("strong")
 
 TAG = re.compile(r"\[(b\d{4,})\]\s*")
 DEFAULT_MAX_TOKENS = 8192
@@ -270,11 +250,11 @@ def _skip_translation(b: dict) -> bool:
     return False
 
 
-def _block_key(client: Client, b: dict, glossary: dict[str, str]) -> str:
+def _block_key(client: Client, b: dict, glossary: dict[str, str], gloss_mode: str = "") -> str:
     blob = (b.get("text") or "").lower()
     terms = "\n".join("%s=%s" % (k, v) for k, v in sorted(glossary.items())
                       if k and _term_hit(k, blob))
-    raw = "\0".join((PROMPT_VERSION, str(getattr(client, "model", "") or ""),
+    raw = "\0".join((PROMPT_VERSION, gloss_mode, str(getattr(client, "model", "") or ""),
                      b.get("type", ""), b.get("text", ""), terms))
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
@@ -349,7 +329,8 @@ def _parallel(tasks: list, workers: int, stop=None, progress=None) -> None:
     ex.shutdown(wait=True)
 
 
-def fix_headings(client, blocks, stop=None, workers: int = 4, progress=None):
+def fix_headings(client, blocks, stop=None, workers: int = 4, progress=None,
+                 system: str | None = None):
     """Headings whose translation came back as a sentence are re-requested alone."""
     bad = [b for b in blocks if b.get("type") in ("h1", "h2") and b.get("zh")
            and (len(b["zh"]) > 60 or b["zh"].rstrip().endswith(("。", ".")))]
@@ -357,7 +338,7 @@ def fix_headings(client, blocks, stop=None, workers: int = 4, progress=None):
 
     def one(b: dict) -> None:
         try:
-            out = _chat(client, SYSTEM,
+            out = _chat(client, system or SYSTEM,
                         "只把这个标题译成简洁中文（不超过 25 字），不要解释，只输出译文：\n" + b["text"],
                         stop=stop)
         except StopRequested:
@@ -374,7 +355,8 @@ def fix_headings(client, blocks, stop=None, workers: int = 4, progress=None):
     return len(fixed)
 
 
-def repair_blocks(client, blocks, stop=None, workers: int = 4, progress=None):
+def repair_blocks(client, blocks, stop=None, workers: int = 4, progress=None,
+                  system: str | None = None):
     """Re-request blocks whose translation looks shifted (length/heading anomalies)."""
     from . import proofread as pf
     bad = [i for i in pf.check({"blocks": blocks})
@@ -397,7 +379,7 @@ def repair_blocks(client, blocks, stop=None, workers: int = 4, progress=None):
             return
         prompt = ("把下面这一段译成中文，只输出译文，不要编号、不要解释：\n" + b["text"])
         try:
-            out = _chat(client, SYSTEM, prompt, stop=stop)
+            out = _chat(client, system or SYSTEM, prompt, stop=stop)
         except StopRequested:
             raise
         except Exception:
@@ -502,7 +484,9 @@ def fix_english_terms(client, blocks, workers: int = 4, limit: int = 120,
 def translate_blocks(client: Client, blocks: list[dict], glossary: dict[str, str],
                      workers: int = 4, chunk_size: int = 1600,
                      chunk_chars: int = MAX_CHUNK_CHARS, dry_run: bool = False,
-                     progress=None, stop=None) -> list[dict]:
+                     progress=None, stop=None,
+                     source_gloss: str = "strong") -> list[dict]:
+    system = gloss_mod.system_prompt(source_gloss)
     skipped = 0
     seen: dict[str, dict] = {}
     dups: list[tuple[dict, dict]] = []
@@ -514,7 +498,7 @@ def translate_blocks(client: Client, blocks: list[dict], glossary: dict[str, str
             b["zh"] = (b.get("text") or "").strip()
             skipped += 1
             continue
-        ck = "" if dry_run else _block_key(client, b, glossary)
+        ck = "" if dry_run else _block_key(client, b, glossary, source_gloss)
         cached = _cache_get(client, ck) if ck else None
         if cached:
             b["zh"] = cached
@@ -556,7 +540,7 @@ def translate_blocks(client: Client, blocks: list[dict], glossary: dict[str, str
             if attempt:
                 prompt += "\n\n【重试 %d】上次输出缺行。本次必须输出 %d 行，编号与输入严格一一对应。" % (attempt, len(todo))
             try:
-                text, finish = _chat_meta(client, SYSTEM, prompt, stop=stop)
+                text, finish = _chat_meta(client, system, prompt, stop=stop)
             except StopRequested:
                 raise
             except Exception:
@@ -617,7 +601,7 @@ def translate_blocks(client: Client, blocks: list[dict], glossary: dict[str, str
                 if stop is not None and stop.is_set():
                     raise StopRequested()
                 try:
-                    text, finish = _chat_meta(client, SYSTEM, prompt, stop=stop)
+                    text, finish = _chat_meta(client, system, prompt, stop=stop)
                 except StopRequested:
                     raise
                 except Exception:
