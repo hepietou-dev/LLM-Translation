@@ -8,8 +8,9 @@ llmtr run book.epub --out out\book
 llmtr run book.docx --out out\book
 ```
 
-Windows 用户可直接从 [Releases](../../releases) 下载 `LLMTranslation_Setup_1.1.0.exe`，
-双击安装即可使用，不需要安装 Python 或其他运行环境。
+Windows 用户可直接从 [Releases](../../releases) 下载 `LLMTranslation_Setup_1.2.0.exe`，
+双击安装即可使用。安装包已内置 Node 和 LibreOffice Kit，不需要安装 Python、Office、
+LibreOffice 或其他运行环境。
 
 ![界面](docs/screenshot.png)
 
@@ -22,8 +23,11 @@ pip install -r requirements.txt
 set DEEPSEEK_API_KEY=<your-api-key>
 ```
 
-图表页渲染与目录页码回填需要 LibreOffice Kit（可选；缺失时自动跳过这两步）。路径在 `config/config.json → figures.node / figures.cli` 配置。
-DOCX 输入需要本机安装 Microsoft Word、WPS 或 LibreOffice 之一，用于无头转 PDF（转换器缺失时会直接报错）。
+安装包自带 LibreOffice Kit，DOCX 转 PDF、预览 PDF 和目录页码回填开箱即用。
+源码运行时，把 Node + Kit 放到 `vendor/libreoffice-kit/`（`node.exe` 与
+`node_modules/@deepseek-ai/libreoffice-kit/lib/cli.js`）即可；也可以用
+`config/config.json → figures.node / figures.cli` 指定已有路径，或改由本机
+LibreOffice / Word / WPS 兜底。
 
 ## 命令
 
@@ -53,9 +57,9 @@ LLMTranslation.exe --pdf book.pdf --out out\book --preset print --start
 
 ## Windows 安装包
 
-`LLMTranslation_Setup_1.1.0.exe` 是免环境的一键安装包（NSIS，按当前用户安装，不需要管理员权限）：
+`LLMTranslation_Setup_1.2.0.exe` 是免环境的一键安装包（NSIS，按当前用户安装，不需要管理员权限）：
 
-- 安装到 `%LOCALAPPDATA%\Programs\LLM Translation`，约 100 MB，包含 Python、PyMuPDF、python-docx 和 Pillow；
+- 安装到 `%LOCALAPPDATA%\Programs\LLM Translation`，约 380 MB，包含 Python、PyMuPDF、python-docx、Pillow、Node 以及完整的 LibreOffice Kit 引擎；
 - 自动创建桌面、开始菜单快捷方式，并写入标准卸载注册表项（设置 → 应用 → 已安装的应用可看到）；
 - 卸载时可选择“保留配置和缓存”或“全部删除”（静默卸载默认保留，`/DELETEALL` 强制清空）；
 - 安装包与程序均未使用 UPX 壳，降低杀毒软件误报概率；但未购买代码签名证书，SmartScreen 仍可能提示“未知发布者”。
@@ -64,9 +68,14 @@ LLMTranslation.exe --pdf book.pdf --out out\book --preset print --start
 
 ```bat
 python -m PyInstaller LLMTranslation.spec
-:: 将 dist\LLMTranslation、assets、installer 复制到 C:\build 下对应位置
+:: 将 dist\LLMTranslation、assets、installer、vendor\libreoffice-kit
+:: 复制到 C:\build 下对应位置
 C:\nsis\Bin\makensis.exe C:\build\installer\LLMTranslation.nsi
 ```
+
+LibreOffice Kit 的原生引擎无法从含中文的路径启动，因此安装包把它装到
+`C:\ProgramData\LLMTranslationKit`（与用户名、安装目录无关的纯英文路径），
+程序启动时优先从那里加载；源码运行时则先找 `vendor/libreoffice-kit`。
 
 安装包内的 `使用说明.txt` 面向非技术用户，安装完成页和开始菜单均可打开。
 
@@ -225,6 +234,6 @@ python -m unittest test_baseline     :: 基线书回归；缺少 source.pdf 时�
 4. 图版若被旋转扫描，需在 `figures.rotate` 指定角度（视觉模型能判内容，但不会自动转正）。
 5. EPUB 仅支持图文 EPUB（XHTML 逐页排版，如"页面对应一本印刷书"的转换版）；流式重排的 EPUB 结构线索弱，
    标题层级可能不准。
-6. DOCX 的版面以本机 Word/WPS/LibreOffice 转出的 PDF 为准：缺字体或分页差异会影响图版/表格定位；
+6. DOCX 的版面以内置 LibreOffice Kit 转出的 PDF 为准：缺字体或分页差异会影响图版/表格定位；
    标题层级优先取 `Heading 1-3` 样式，未用样式的标题仍按字号启发式。
 7. 跨版拆分按几何比例判定；极少数"横排单页大图"可能误判为跨版，可用 `ocr.spread: "off"` 关闭。

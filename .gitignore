@@ -16,6 +16,9 @@ dist_installer/
 out/
 work/
 
+# Bundled Node + LibreOffice Kit runtime (large binaries, copied at build time)
+vendor/
+
 # Baseline book is copyrighted; keep it local only
 tests/fixtures/baseline/source.pdf
 

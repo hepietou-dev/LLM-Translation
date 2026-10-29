@@ -15,7 +15,7 @@ import _bootstrap  # noqa: E402,F401  (side effect: sys.path)
 import pymupdf  # noqa: E402
 from PIL import Image  # noqa: E402
 
-from llmtr import ingest, ocr, pipeline  # noqa: E402
+from llmtr import figures, ingest, ocr, pipeline  # noqa: E402
 
 
 def _page(tmp: Path, w: float, h: float, raster: bool):
@@ -930,6 +930,30 @@ class ConfigDefaults(unittest.TestCase):
         self.assertEqual(cfg["ocr"]["mode"], "auto")
         self.assertEqual(cfg["figures"].get("force", []), [])
         self.assertEqual(cfg["source_gloss"]["mode"], "strong")
+
+    def test_bundled_kit_is_resolved(self):
+        bundled = figures.kit_paths()
+        if bundled is None:
+            self.skipTest("vendor/libreoffice-kit not staged")
+        cfg = pipeline.load_config(None)
+        self.assertEqual((cfg["figures"]["node"], cfg["figures"]["cli"]), bundled)
+        self.assertTrue(Path(cfg["figures"]["node"]).is_file())
+        self.assertTrue(Path(cfg["figures"]["cli"]).is_file())
+
+    def test_existing_kit_override_wins(self):
+        with tempfile.TemporaryDirectory() as d:
+            node, cli = Path(d) / "node.exe", Path(d) / "cli.js"
+            node.write_text("")
+            cli.write_text("")
+            cfg = figures.resolve({"node": str(node), "cli": str(cli)})
+            self.assertEqual((cfg["node"], cfg["cli"]), (str(node), str(cli)))
+
+    def test_missing_kit_override_falls_back_to_bundled(self):
+        bundled = figures.kit_paths()
+        if bundled is None:
+            self.skipTest("vendor/libreoffice-kit not staged")
+        cfg = figures.resolve({"node": "Z:/missing/node.exe", "cli": "Z:/missing/cli.js"})
+        self.assertEqual((cfg["node"], cfg["cli"]), bundled)
 
 
 class CooperativeStop(unittest.TestCase):

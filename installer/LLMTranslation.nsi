@@ -7,12 +7,13 @@ Unicode true
 !include "FileFunc.nsh"
 
 !define APP_NAME "LLM Translation"
-!define APP_VERSION "1.1.0"
+!define APP_VERSION "1.2.0"
 !define APP_PUBLISHER "LLM Translation"
 !define APP_EXE "LLMTranslation.exe"
 !define APP_REG "Software\LLMTranslation"
 !define UNINST_REG "Software\Microsoft\Windows\CurrentVersion\Uninstall\LLMTranslation"
 !define DIST "..\dist\LLMTranslation"
+!define KIT_SRC "..\vendor\libreoffice-kit"
 !define ICON "..\assets\app.ico"
 
 Name "${APP_NAME} ${APP_VERSION}"
@@ -26,7 +27,7 @@ SetDatablockOptimize on
 CRCCheck on
 BrandingText "${APP_NAME} ${APP_VERSION}"
 
-VIProductVersion "1.1.0.0"
+VIProductVersion "1.2.0.0"
 VIAddVersionKey "ProductName" "${APP_NAME}"
 VIAddVersionKey "CompanyName" "${APP_PUBLISHER}"
 VIAddVersionKey "FileDescription" "LLM Translation 安装程序"
@@ -38,7 +39,7 @@ VIAddVersionKey "LegalCopyright" "Copyright (C) 2026 ${APP_PUBLISHER}"
 !define MUI_ICON "${ICON}"
 !define MUI_UNICON "${ICON}"
 !define MUI_WELCOMEPAGE_TITLE "安装 LLM Translation"
-!define MUI_WELCOMEPAGE_TEXT "本程序会把英文 PDF / EPUB / DOCX 书籍翻译成中文 Word。$\r$\n$\r$\n安装不需要联网，不需要 Python 或任何运行库，约占 100 MB 磁盘空间。$\r$\n$\r$\n安装完成后，用桌面快捷方式启动，填入自己的翻译 API Key 即可使用。"
+!define MUI_WELCOMEPAGE_TEXT "本程序会把英文 PDF / EPUB / DOCX 书籍翻译成中文 Word。$\r$\n$\r$\n安装不需要联网，也不需要 Python、Office 或 LibreOffice；安装包已内置文档转换引擎，约占 450 MB 磁盘空间。$\r$\n$\r$\n安装完成后，用桌面快捷方式启动，填入自己的翻译 API Key 即可使用。"
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${APP_EXE}"
 !define MUI_FINISHPAGE_RUN_TEXT "立即启动 LLM Translation"
 !define MUI_FINISHPAGE_SHOWREADME "$INSTDIR\使用说明.txt"
@@ -58,13 +59,24 @@ UninstPage custom un.OptionsPage un.OptionsLeave
 !insertmacro MUI_LANGUAGE "SimpChinese"
 
 Var KeepCfg
+Var KitDir
 
 Function .onInit
   StrCpy $KeepCfg "1"
+  ReadEnvStr $KitDir "ProgramData"
+  ${If} $KitDir == ""
+    StrCpy $KitDir "$WINDIR\..\ProgramData"
+  ${EndIf}
+  StrCpy $KitDir "$KitDir\LLMTranslationKit"
 FunctionEnd
 
 Function un.onInit
   StrCpy $KeepCfg "1"
+  ReadEnvStr $KitDir "ProgramData"
+  ${If} $KitDir == ""
+    StrCpy $KitDir "$WINDIR\..\ProgramData"
+  ${EndIf}
+  StrCpy $KitDir "$KitDir\LLMTranslationKit"
   ${GetParameters} $R0
   ${GetOptions} $R0 "/DELETEALL" $R1
   ${IfNot} ${Errors}
@@ -77,6 +89,11 @@ Section "安装"
   SetOutPath "$INSTDIR"
   File /r "${DIST}\*.*"
   File "使用说明.txt"
+
+  ; The native engine cannot start from a path containing non-ASCII characters,
+  ; so keep it in %ProgramData% instead of following a Chinese install directory.
+  SetOutPath "$KitDir"
+  File /r "${KIT_SRC}\*.*"
 
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
@@ -97,6 +114,8 @@ Section "安装"
   WriteRegDWORD HKCU "${UNINST_REG}" "NoModify" 1
   WriteRegDWORD HKCU "${UNINST_REG}" "NoRepair" 1
   ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
+  ${GetSize} "$KitDir" "/S=0K" $3 $1 $2
+  IntOp $0 $0 + $3
   WriteRegDWORD HKCU "${UNINST_REG}" "EstimatedSize" $0
 SectionEnd
 
@@ -144,6 +163,7 @@ Section "Uninstall"
   DeleteRegKey HKCU "${UNINST_REG}"
   DeleteRegKey HKCU "${APP_REG}"
 
+  RMDir /r "$KitDir"
   RMDir /r "$INSTDIR"
 SectionEnd
 

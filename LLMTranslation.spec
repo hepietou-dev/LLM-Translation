@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
-# Lightweight onedir build: only PyMuPDF, pypdf, python-docx, Pillow and tkinter
-# are needed at run time.  Heavy scientific/optional stacks are excluded to cut
-# the installer size and speed up startup on low-end machines.
+# Onedir build.  The NSIS installer ships Node + LibreOffice Kit separately
+# under %PUBLIC%\LLMTranslationKit because the native engine cannot start from
+# non-ASCII paths (Chinese usernames or folder names).
 import os
 
 EXCLUDES = [

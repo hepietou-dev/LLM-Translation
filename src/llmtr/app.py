@@ -633,6 +633,7 @@ class App:
     def check_tools(self) -> None:
         """Report whether TOC page numbering is available on this machine."""
         try:
+            from llmtr import figures as fig_mod
             from llmtr import pipeline
             from llmtr.app import app_root
             cfg_path = app_root() / "config" / "config.json"
@@ -640,12 +641,16 @@ class App:
             kit = (cfg.get("figures") or {})
             has_kit = bool(kit.get("node") and kit.get("cli")
                            and Path(kit["node"]).exists() and Path(kit["cli"]).exists())
+            bundled = fig_mod.kit_paths()
+            built_in = bool(bundled and has_kit
+                            and (kit["node"], kit["cli"]) == bundled)
             soffice = pipeline.find_soffice(cfg)
             if has_kit or soffice:
-                self.log_line("目录页码：可用（%s）" % ("LibreOffice Kit" if has_kit else "LibreOffice"),
-                              "ok")
+                label = ("内置 LibreOffice Kit" if built_in
+                         else "LibreOffice Kit" if has_kit else "LibreOffice")
+                self.log_line("目录页码与 DOCX 转换：可用（%s）" % label, "ok")
             else:
-                self.log_line("目录页码：不可用 —— 未找到 LibreOffice，目录将不含页码", "err")
+                self.log_line("目录页码：不可用 —— 未找到文档转换引擎，目录将不含页码", "err")
         except Exception as exc:                          # noqa: BLE001
             self.log_line("工具检查失败：%s" % exc, "err")
 
@@ -858,6 +863,21 @@ def selftest(pdf: str) -> int:
         cfg_path = app_root() / "config" / "config.json"
         cfg = pipeline.load_config(cfg_path)
         lines.append("config ok: %s" % cfg_path.exists())
+        from llmtr import docxin, figures
+        from docx import Document as _Doc
+        node, cli = cfg["figures"].get("node"), cfg["figures"].get("cli")
+        lines.append("kit: %s" % (figures.kit_paths(),))
+        if node and cli and Path(node).is_file() and Path(cli).is_file():
+            with tempfile.TemporaryDirectory() as d:
+                src, dst = Path(d) / "t.docx", Path(d) / "t.pdf"
+                _doc = _Doc()
+                _doc.add_paragraph("kit selftest")
+                _doc.save(src)
+                ok = docxin.convert(src, dst, node=node, cli=cli, log=lambda *_a: None)
+                size = dst.stat().st_size if dst.exists() else 0
+                lines.append("docx->pdf: %s (%d bytes)" % (ok, size))
+        else:
+            lines.append("docx->pdf: kit missing")
         from types import SimpleNamespace
         from llmtr import app as app_mod
         stub = SimpleNamespace(prog={"stage": "", "done": 0, "total": 1, "idx": 0,

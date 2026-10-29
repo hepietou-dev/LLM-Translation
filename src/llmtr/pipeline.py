@@ -56,6 +56,7 @@ def load_config(path: Path | None) -> dict:
                 cfg[k].update(v)
             else:
                 cfg[k] = v
+    fig_mod.resolve(cfg["figures"])
     return cfg
 
 

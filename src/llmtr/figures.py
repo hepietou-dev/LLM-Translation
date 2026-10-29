@@ -1,11 +1,16 @@
 """Figure / plate pages: detect candidates, confirm with vision, render, crop, embed."""
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 from .ingest import labels_for_src, page_index
 from .procutil import no_window
+
+KIT_DIR = "libreoffice-kit"
+KIT_CLI = Path("node_modules") / "@deepseek-ai" / "libreoffice-kit" / "lib" / "cli.js"
 
 DEFAULTS = {
     "mode": "auto",          # auto | off
@@ -17,9 +22,55 @@ DEFAULTS = {
     "rotate": {},
     "captions": {},
     "vision": True,          # confirm candidates with the vision model when a key is set
-    "node": r"D:\DSH_NEXT\DSH NEXT\resources\runtime\x64\primary-runtime\dependencies\node\bin\node.exe",
-    "cli": r"D:\DSH_NEXT\DSH NEXT\resources\app.asar.unpacked\node_modules\@deepseek-ai\libreoffice-kit\lib\cli.js",
+    "node": "",              # explicit override; empty means use the bundled kit
+    "cli": "",
 }
+
+
+def kit_roots() -> list[Path]:
+    """Candidate kit folders, most preferred first.
+
+    The native engine cannot start from a path containing non-ASCII characters,
+    so the installer puts it under %PROGRAMDATA% (an ASCII path independent of
+    the user name) and both the frozen app and source runs check there before
+    the bundled copy.
+    """
+    shared = [os.environ.get("PROGRAMDATA") or r"C:\ProgramData",
+              os.environ.get("PUBLIC") or r"C:\Users\Public"]
+    roots = [Path(base) / "LLMTranslationKit" for base in shared]
+    if getattr(sys, "frozen", False):
+        roots.append(Path(sys._MEIPASS) / KIT_DIR)   # noqa: SLF001
+    else:
+        roots.append(Path(__file__).resolve().parents[2] / "vendor" / KIT_DIR)
+    return roots
+
+
+def _paths_at(root: Path) -> tuple[str, str] | None:
+    node, cli = root / "node.exe", root / KIT_CLI
+    if node.is_file() and cli.is_file():
+        return str(node), str(cli)
+    return None
+
+
+def kit_paths() -> tuple[str, str] | None:
+    """(node.exe, cli.js) from the first usable kit folder, else None."""
+    for root in kit_roots():
+        found = _paths_at(root)
+        if found:
+            return found
+    return None
+
+
+def resolve(cfg: dict | None = None) -> dict:
+    """Prefer configured paths that exist; otherwise fall back to the installed kit."""
+    cfg = cfg if cfg is not None else {}
+    node, cli = str(cfg.get("node") or ""), str(cfg.get("cli") or "")
+    if not (node and cli and Path(node).is_file() and Path(cli).is_file()):
+        bundled = kit_paths()
+        if bundled:
+            node, cli = bundled
+    cfg["node"], cfg["cli"] = node, cli
+    return cfg
 
 
 def detect(blocks: list[dict], cfg: dict) -> list[int]:
@@ -54,6 +105,8 @@ def render(pdf: Path, page: int, labels: list[str], out_png: Path, cfg: dict,
         pix.save(str(raw))
         doc.close()
     except Exception:
+        if not (cfg.get("node") and cfg.get("cli")):
+            return None
         raw_dir = png.parent / ("_raw_%d" % page)
         subprocess.run([cfg["node"], cfg["cli"], "render", "--input", str(pdf),
                         "--output-dir", str(raw_dir), "--pages", str(idx + 1),
