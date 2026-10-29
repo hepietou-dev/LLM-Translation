@@ -5,6 +5,7 @@
 ## 下载
 
 - **Windows 10 / 11（64 位）安装包**：`LLMTranslation_Setup_1.0.0.exe`
+- SHA256：`f41b79400290224ecf027c58eda4889de7ae191aa04ab5e3bd4f9df8ddca67ad`
 - 免安装源码运行：克隆仓库后按 README 安装依赖
 
 安装包约 32 MB，按当前用户安装，不需要管理员权限、Python 或任何运行库。
