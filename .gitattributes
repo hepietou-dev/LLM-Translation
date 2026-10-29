@@ -1,0 +1,5 @@
+* text=auto
+*.png binary
+*.ico binary
+*.nsi text eol=crlf
+installer/*.txt text eol=crlf
