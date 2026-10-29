@@ -69,9 +69,11 @@ LLMTranslation.exe --pdf book.pdf --out out\book --preset print --start
 ```bat
 python -m PyInstaller LLMTranslation.spec
 :: 将 dist\LLMTranslation、assets、installer、vendor\libreoffice-kit
-:: 复制到 C:\build 下对应位置
-C:\nsis\Bin\makensis.exe C:\build\installer\LLMTranslation.nsi
+:: 复制到 D:\build 下对应位置
+C:\nsis\Bin\makensis.exe D:\build\installer\LLMTranslation.nsi
 ```
+
+构建暂存目录用纯英文路径（如 `D:\build`），构建完成后可整体删除，不要留在 C 盘。
 
 LibreOffice Kit 的原生引擎无法从含中文的路径启动，因此安装包把它装到
 `C:\ProgramData\LLMTranslationKit`（与用户名、安装目录无关的纯英文路径），
